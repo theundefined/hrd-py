@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrd-py"
+version = "0.1.0"
+description = "A Python library and CLI for the HRD.pl API"
+readme = "README.md"
+authors = [{name = "TheUndefined"}]
+license = {text = "MIT"}
+dependencies = [
+    "click>=8.0.0",
+    "python-dotenv>=0.19.0",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+hrd = "hrd_py.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hrd_py*"]

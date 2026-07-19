@@ -1,0 +1,20 @@
+# Secrets
+.pass
+.env
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Python virtual environment
+venv/
+
+# Build artifacts
+build/
+*.egg-info/
+
+# Byte-compiled / cache
+__pycache__/
+*.pyc
+
+# Test cache
+.pytest_cache/
