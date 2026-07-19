@@ -12,10 +12,11 @@ load_dotenv(override=True)
 
 
 class CLIContext:
-    def __init__(self, profile=None):
+    def __init__(self, profile=None, debug=False):
         self.config_manager = ConfigManager()
         self.explicit_profile = profile
         self.profile_name = profile or self.config_manager.get_default_profile_name()
+        self.debug = debug
         self._client = None
 
     def get_client(self):
@@ -25,7 +26,7 @@ class CLIContext:
         # 1. Try from config
         profile = self.config_manager.get_profile(self.profile_name)
         if profile:
-            self._client = HRDClient(profile["login"], profile["password"], profile["api_hash"])
+            self._client = HRDClient(profile["login"], profile["password"], profile["api_hash"], debug=self.debug)
             return self._client
 
         # 2. Fallback to ENV (only if no specific profile requested)
@@ -35,7 +36,7 @@ class CLIContext:
             api_hash = os.getenv("HRD_HASH")
 
             if all([login, password, api_hash]):
-                self._client = HRDClient(login, password, api_hash)
+                self._client = HRDClient(login, password, api_hash, debug=self.debug)
                 return self._client
 
         click.echo(f"Error: Missing configuration for profile '{self.profile_name or 'default'}'.")
@@ -55,10 +56,11 @@ class CLIContext:
 
 @click.group()
 @click.option("--profile", help="Use a specific profile from config")
+@click.option("--debug", is_flag=True, help="Show full API requests and responses")
 @click.pass_context
-def cli(ctx, profile):
+def cli(ctx, profile, debug):
     """HRD.pl API Command Line Interface"""
-    ctx.obj = CLIContext(profile)
+    ctx.obj = CLIContext(profile, debug=debug)
 
 
 @cli.group()
@@ -119,7 +121,7 @@ def balance(obj):
         return
 
     for p_name in profiles_to_process:
-        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
             client = ctx_profile.get_client()
             client.login()
@@ -148,7 +150,7 @@ def domains(obj, all, days):
         return
 
     for p_name in profiles_to_process:
-        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         click.echo(f"\n--- Profile: {p_name or 'default'} ---")
         try:
             client = ctx_profile.get_client()
@@ -169,6 +171,58 @@ def domains(obj, all, days):
             click.echo(f"Error processing profile {p_name or 'default'}: {e}")
 
 
+@cli.command(name="domain-info")
+@click.argument("domain")
+@click.pass_obj
+def domain_info(obj, domain):
+    """Show all available information about a domain, including its owner."""
+    client = obj.get_client()
+    try:
+        client.login()
+        d = client.get_domain_details(domain)
+
+        click.echo(f"Domain:      {d.name}")
+        click.echo(f"Status:      {d.status}")
+        click.echo(f"Created:     {d.create_date.strftime('%Y-%m-%d') if d.create_date else 'unknown'}")
+        click.echo(f"Expires:     {d.expiry_date.strftime('%Y-%m-%d') if d.expiry_date else 'unknown'}")
+
+        privacy_str = "enabled" if d.privacy else "disabled"
+        if d.privacy_protection_date:
+            privacy_str += f" (since {d.privacy_protection_date.strftime('%Y-%m-%d')})"
+        click.echo(f"Privacy:     {privacy_str}")
+
+        if d.nameservers:
+            click.echo(f"Nameservers: {', '.join(d.nameservers)}")
+        if d.hosts:
+            hosts_str = ", ".join(f"{h.get('name')} ({', '.join(h.get('ips', []))})" for h in d.hosts)
+            click.echo(f"Glue hosts:  {hosts_str}")
+        if d.dnssec_records:
+            click.echo(f"DNSSEC:      {len(d.dnssec_records)} record(s)")
+        if d.action_ids:
+            click.echo(f"Actions:     {', '.join(str(i) for i in d.action_ids)}")
+
+        click.echo("\nOwner:")
+        if d.owner:
+            click.echo(f"  Name:    {d.owner.name}")
+            if d.owner.type:
+                click.echo(f"  Type:    {d.owner.type}")
+            if d.owner.id_number:
+                click.echo(f"  Tax/ID:  {d.owner.id_number}")
+            if d.owner.email:
+                click.echo(f"  Email:   {d.owner.email}")
+            address = ", ".join(p for p in (d.owner.street, d.owner.postcode, d.owner.city, d.owner.country) if p)
+            if address:
+                click.echo(f"  Address: {address}")
+            if d.owner.landline_phone:
+                click.echo(f"  Phone:   {d.owner.landline_phone}")
+            if d.owner.mobile_phone:
+                click.echo(f"  Mobile:  {d.owner.mobile_phone}")
+        else:
+            click.echo("  unknown")
+    except HRDError as e:
+        click.echo(f"Error: {e}")
+
+
 @cli.command()
 @click.option("--limit", default=20, help="Number of most recent operations to show per profile")
 @click.pass_obj
@@ -186,7 +240,7 @@ def history(obj, limit):
 
     rows = []
     for p_name in profiles_to_process:
-        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
             client = ctx_profile.get_client()
             client.login()
@@ -201,11 +255,12 @@ def history(obj, limit):
 
     rows.sort(key=lambda r: r[1].date or datetime.min, reverse=True)
 
-    click.echo(f"{'DATE':19} | {'OWNER':12} | {'TYPE':10} | {'OBJECT':30} | STATUS")
+    click.echo(f"{'DATE':19} | {'OWNER':12} | {'TYPE':10} | {'OBJECT':30} | {'COST':>10} | STATUS")
     for owner, entry in rows:
         date_str = entry.date.strftime("%Y-%m-%d %H:%M:%S") if entry.date else "unknown"
         target = entry.object_name or entry.object
-        click.echo(f"{date_str:19} | {owner:12} | {entry.type:10} | {target:30} | {entry.status}")
+        cost_str = f"{entry.amount:.2f}" if entry.amount is not None else "-"
+        click.echo(f"{date_str:19} | {owner:12} | {entry.type:10} | {target:30} | {cost_str:>10} | {entry.status}")
 
 
 @cli.command()
@@ -243,7 +298,7 @@ def auto_renew(obj, days, dry_run, no_ask):
 
     for p_name in profiles_to_process:
         # Create a fresh context per profile, unless the user pinned one explicitly
-        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
 
         click.echo(f"\n--- Processing profile: {p_name or 'default'} ---")
         try:

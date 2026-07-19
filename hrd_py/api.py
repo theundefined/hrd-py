@@ -17,6 +17,7 @@ class HRDApi:
         port: int = 9999,
         timeout: int = 10,
         verify_peer: bool = True,
+        debug: bool = False,
     ):
         self.api_login = api_login
         self.api_pass = api_pass
@@ -25,6 +26,7 @@ class HRDApi:
         self.port = port
         self.timeout = timeout
         self.verify_peer = verify_peer
+        self.debug = debug
 
         self.token: Optional[str] = None
         self._sock: Optional[socket.socket] = None
@@ -122,9 +124,16 @@ class HRDApi:
         # Let's try without declaration first as we did before, but with encoding="utf-8"
         xml_str = ET.tostring(root, encoding="unicode")
 
+        if self.debug:
+            print(f">>> REQUEST  {module}/{method}\n{xml_str}\n")
+
         self._send(xml_str)
 
         response_xml = self._read()
+
+        if self.debug:
+            print(f"<<< RESPONSE {module}/{method}\n{response_xml}\n")
+
         # The PHP code removes the xmlns before parsing
         response_xml = response_xml.replace('xmlns="http://api.hrd.pl/api/"', "")
 
@@ -192,12 +201,38 @@ class HRDApi:
         resp = self._request("domain", "info", params)
         info_elem = resp.find(".//domain/info")
 
-        if info_elem is not None:
-            info = {}
-            for child in info_elem:
+        if info_elem is None:
+            raise HRDAPIError(f"Could not find info for domain {domain_name}")
+
+        info: Dict[str, Any] = {"host": [], "dnssec": []}
+        for child in info_elem:
+            if child.tag == "ns":
+                info["ns"] = self._parse_ns_element(child)
+            elif child.tag == "host":
+                info["host"].append(self._parse_host_element(child))
+            elif child.tag == "dnssec":
+                info["dnssec"].append({dc.tag: dc.text for dc in child})
+            elif child.tag == "actions":
+                info["actions"] = [int(i.text) for i in child.findall("id") if i.text is not None]
+            else:
                 info[child.tag] = child.text
-            return info
-        raise HRDAPIError(f"Could not find info for domain {domain_name}")
+        return info
+
+    def _parse_ns_element(self, ns_elem: ET.Element) -> List[str]:
+        # <ns> is a choice of either a nameserver group id, or an explicit <ns><ns><name>...
+        servers = []
+        ns_list_elem = ns_elem.find("ns")
+        if ns_list_elem is not None:
+            for ns_child in ns_list_elem.findall("ns"):
+                name_el = ns_child.find("name")
+                if name_el is not None and name_el.text:
+                    servers.append(name_el.text)
+        return servers
+
+    def _parse_host_element(self, host_elem: ET.Element) -> Dict[str, Any]:
+        name_el = host_elem.find("name")
+        ips = [ip.text for ip in host_elem if ip.tag in ("ipv4", "ipv6") and ip.text is not None]
+        return {"name": name_el.text if name_el is not None else None, "ips": ips}
 
     def domain_renew(self, domain_name: str, current_expiry_date: str, period: int = 1) -> int:
         params = {"name": domain_name, "currentExpirationDate": current_expiry_date, "period": period}
@@ -227,3 +262,15 @@ class HRDApi:
                 info[child.tag] = child.text
             return info
         raise HRDAPIError(f"Could not find info for action {action_id}")
+
+    def user_info(self, user_id: int) -> Dict[str, Any]:
+        params = {"id": user_id}
+        resp = self._request("user", "info", params)
+        info_elem = resp.find(".//user/info")
+
+        if info_elem is not None:
+            info = {}
+            for child in info_elem:
+                info[child.tag] = child.text
+            return info
+        raise HRDAPIError(f"Could not find info for user {user_id}")

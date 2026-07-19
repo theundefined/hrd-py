@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .api import HRDApi
-from .models import Balance, Domain, HistoryEntry
+from .models import Balance, Domain, DomainDetails, HistoryEntry, Owner
 from .exceptions import HRDError
 
 
@@ -116,6 +116,45 @@ class HRDClient:
             status=info.get("status", "unknown"),
             amount=amount,
             date=date,
+        )
+
+    def get_domain_details(self, domain_name: str) -> DomainDetails:
+        info = self.api.domain_info(domain_name)
+
+        owner = None
+        user_id = info.get("user")
+        if user_id:
+            try:
+                owner = self._parse_owner(self.api.user_info(int(user_id)))
+            except HRDError:
+                owner = None
+
+        return DomainDetails(
+            name=domain_name,
+            status=info.get("status", "unknown"),
+            create_date=self._parse_date(info["crDate"]) if info.get("crDate") else None,
+            expiry_date=self._parse_date(info["exDate"]) if info.get("exDate") else None,
+            privacy=info.get("privacy") == "true",
+            privacy_protection_date=self._parse_date(info["ppDate"]) if info.get("ppDate") else None,
+            nameservers=info.get("ns", []),
+            hosts=info.get("host", []),
+            dnssec_records=info.get("dnssec", []),
+            action_ids=info.get("actions", []),
+            owner=owner,
+        )
+
+    def _parse_owner(self, data: Dict[str, Any]) -> Owner:
+        return Owner(
+            name=data.get("name", "unknown"),
+            type=data.get("type"),
+            email=data.get("email"),
+            street=data.get("street"),
+            city=data.get("city"),
+            postcode=data.get("postcode"),
+            country=data.get("country"),
+            id_number=data.get("idNumber"),
+            landline_phone=data.get("landlinePhone"),
+            mobile_phone=data.get("mobilePhone"),
         )
 
     def renew_all_expiring(self, days: int = 30) -> Dict[str, int]:

@@ -18,6 +18,7 @@ pip install -e ".[dev]"
 hrd balance
 hrd domains --all
 hrd history --limit 20
+hrd domain-info example.com
 hrd renew example.com
 hrd auto-renew --days 7 --dry-run
 
@@ -48,21 +49,29 @@ to be added):
   the 4-byte big-endian length-prefixed framing, XML request construction
   (`xmlns="http://api.hrd.pl/api/"`), and response parsing. One method per API call
   (`login`, `partner_get_balance`, `domain_list`, `domain_info`, `domain_renew`, `action_list`,
-  `action_info`) returns raw dicts/`ElementTree` data, not domain models. See
+  `action_info`, `user_info`) returns raw dicts/`ElementTree` data, not domain models. See
   `docs_api/PROTOCOL.md` for the full protocol spec — read it before touching `api.py`.
   - Request signing is load-bearing and easy to get subtly wrong: signature =
     `SHA512(exact_utf8_xml_bytes + binary_api_hash)`, sent as 64 raw bytes immediately before the
     XML payload, all inside the length-prefixed frame.
   - The session `token` returned by `login` is **not** resent in later requests — auth is carried
     entirely by the per-request signature. Don't "fix" this by adding the token back into requests.
+  - `HRDApi(..., debug=True)` (wired to the CLI's `--debug` flag) prints every request/response XML
+    in `_request()` — including the plaintext password in the `login` request, so treat `--debug`
+    output as sensitive. `domain_info`'s nested fields (`ns`, `host`, `dnssec`, `actions`) need
+    dedicated parsing helpers (`_parse_ns_element`, `_parse_host_element`) since they contain child
+    elements rather than a flat `.text`, unlike every other field on that response.
 - **`hrd_py/client.py` (`HRDClient`)** — high-level API. Wraps an `HRDApi` instance and converts
-  raw responses into the dataclasses in `hrd_py/models.py` (`Balance`, `Domain`, `HistoryEntry`).
-  Handles `domain_list`/`action_list` pagination (loops using `lastName`/`lastId` until a
-  short/empty batch comes back — the API has no documented page-size limit) and tolerates
-  per-domain `domain_info` failures by falling back to a `status="unknown"` `Domain` rather than
-  failing the whole listing. `get_history(limit)` lists actions oldest-id-first via `action_list`,
-  but only calls `action_info` (one request per id) for the most recent `limit` ids, to avoid one
-  round trip per historical action ever performed on the account.
+  raw responses into the dataclasses in `hrd_py/models.py` (`Balance`, `Domain`, `HistoryEntry`,
+  `Owner`, `DomainDetails`). Handles `domain_list`/`action_list` pagination (loops using
+  `lastName`/`lastId` until a short/empty batch comes back — the API has no documented page-size
+  limit) and tolerates per-domain `domain_info` failures by falling back to a `status="unknown"`
+  `Domain` rather than failing the whole listing. `get_history(limit)` lists actions
+  oldest-id-first via `action_list`, but only calls `action_info` (one request per id) for the
+  most recent `limit` ids, to avoid one round trip per historical action ever performed on the
+  account. `get_domain_details(name)` resolves the registrant/owner by feeding `domain_info`'s
+  `user` id into `user_info` — the API exposes no separate "sale"/invoice concept, so `Owner` is
+  the closest thing to billing-relevant contact data.
 - **`hrd_py/models.py`** — plain dataclasses. `Domain.is_expiring_soon(days=30)` is a **method**,
   not a property — call it as `d.is_expiring_soon()`/`d.is_expiring_soon(days)`.
 - **`hrd_py/config.py` (`ConfigManager`)** — multi-profile credential storage at
@@ -72,6 +81,8 @@ to be added):
   (1) named/default profile from `ConfigManager`, (2) `HRD_LOGIN`/`HRD_PASS`/`HRD_HASH` env vars
   (via `.env`, loaded with `load_dotenv(override=True)` so `.env` always wins over pre-existing
   shell env vars) — env fallback only applies when no specific non-default profile was requested.
+  The global `--debug` flag flows from `CLIContext.debug` into every `HRDClient`/`HRDApi` it
+  constructs (including per-profile ones created inside the multi-profile loops below).
   `balance`, `domains`, `auto-renew`, and `history` all process every configured profile by default
   (via `CLIContext.get_profiles_to_process()`, fresh `CLIContext` per profile) unless the global
   `--profile` option pins them to one — `explicit_profile` (the raw `--profile` value) vs.
