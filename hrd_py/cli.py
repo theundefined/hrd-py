@@ -135,20 +135,37 @@ def balance(obj):
 @click.option("--days", default=30, help="Days until expiry for filtering")
 @click.pass_obj
 def domains(obj, all, days):
-    """List domains and their status"""
-    client = obj.get_client()
-    try:
-        client.login()
-        click.echo(f"Fetching domains for {obj.profile_name or 'default'}...")
-        domains = client.list_domains()
+    """List domains and their status.
 
-        for d in domains:
-            if all or d.is_expiring_soon(days):
-                expiry_str = d.expiry_date.strftime("%Y-%m-%d") if d.expiry_date else "Unknown"
-                status_str = click.style(d.status, fg="red" if d.status == "expired" else "green")
-                click.echo(f"{d.name:30} | {expiry_str:10} | {status_str}")
-    except HRDError as e:
-        click.echo(f"Error: {e}")
+    Fetches domains for every configured profile by default. Pass a
+    specific profile with the global --profile option to restrict it to
+    just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        click.echo(f"\n--- Profile: {p_name or 'default'} ---")
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            domain_list = client.list_domains()
+
+            shown = False
+            for d in domain_list:
+                if all or d.is_expiring_soon(days):
+                    expiry_str = d.expiry_date.strftime("%Y-%m-%d") if d.expiry_date else "Unknown"
+                    status_str = click.style(d.status, fg="red" if d.status == "expired" else "green")
+                    click.echo(f"{d.name:30} | {expiry_str:10} | {status_str}")
+                    shown = True
+
+            if not shown:
+                click.echo("No domains found.")
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
 
 
 @cli.command()
