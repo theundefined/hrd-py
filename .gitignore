@@ -10,11 +10,20 @@ venv/
 
 # Build artifacts
 build/
+dist/
 *.egg-info/
+.eggs/
 
 # Byte-compiled / cache
 __pycache__/
 *.pyc
 
-# Test cache
+# Test / lint / type-check cache
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.idea/
+.vscode/
+*.swp

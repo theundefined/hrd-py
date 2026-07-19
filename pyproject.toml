@@ -15,9 +15,28 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.3.0",
+    "black>=24.0.0",
+    "mypy>=1.9.0",
+    "types-PyYAML>=6.0.0",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+]
+
 [project.scripts]
 hrd = "hrd_py.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["hrd_py*"]
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"

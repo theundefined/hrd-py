@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 # Still load dotenv for backward compatibility or explicit override
 load_dotenv(override=True)
 
+
 class CLIContext:
     def __init__(self, profile=None):
         self.config_manager = ConfigManager()
@@ -30,7 +31,7 @@ class CLIContext:
             login = os.getenv("HRD_LOGIN")
             password = os.getenv("HRD_PASS")
             api_hash = os.getenv("HRD_HASH")
-            
+
             if all([login, password, api_hash]):
                 self._client = HRDClient(login, password, api_hash)
                 return self._client
@@ -39,6 +40,7 @@ class CLIContext:
         click.echo("Use 'hrd profile add' to set up credentials.")
         sys.exit(1)
 
+
 @click.group()
 @click.option("--profile", help="Use a specific profile from config")
 @click.pass_context
@@ -46,10 +48,12 @@ def cli(ctx, profile):
     """HRD.pl API Command Line Interface"""
     ctx.obj = CLIContext(profile)
 
+
 @cli.group()
 def profile():
     """Manage account profiles"""
     pass
+
 
 @profile.command(name="add")
 @click.argument("name")
@@ -61,6 +65,7 @@ def profile_add(obj, name, login, password, hash):
     """Add a new profile"""
     obj.config_manager.add_profile(name, login, password, hash)
     click.echo(f"Profile '{name}' added successfully.")
+
 
 @profile.command(name="list")
 @click.pass_obj
@@ -75,6 +80,7 @@ def profile_list(obj):
         star = "*" if p == default else " "
         click.echo(f"{star} {p}")
 
+
 @profile.command(name="set-default")
 @click.argument("name")
 @click.pass_obj
@@ -84,6 +90,7 @@ def profile_set_default(obj, name):
         click.echo(f"Default profile set to '{name}'.")
     else:
         click.echo(f"Error: Profile '{name}' not found.")
+
 
 @cli.command()
 @click.pass_obj
@@ -99,6 +106,7 @@ def balance(obj):
     except HRDError as e:
         click.echo(f"Error: {e}")
 
+
 @cli.command()
 @click.option("--all", is_flag=True, help="List all domains, not just expiring")
 @click.option("--days", default=30, help="Days until expiry for filtering")
@@ -110,7 +118,7 @@ def domains(obj, all, days):
         client.login()
         click.echo(f"Fetching domains for {obj.profile_name or 'default'}...")
         domains = client.list_domains()
-        
+
         for d in domains:
             if all or d.is_expiring_soon(days):
                 expiry_str = d.expiry_date.strftime("%Y-%m-%d") if d.expiry_date else "Unknown"
@@ -118,6 +126,7 @@ def domains(obj, all, days):
                 click.echo(f"{d.name:30} | {expiry_str:10} | {status_str}")
     except HRDError as e:
         click.echo(f"Error: {e}")
+
 
 @cli.command()
 @click.argument("domain")
@@ -134,6 +143,7 @@ def renew(obj, domain, period):
     except HRDError as e:
         click.echo(f"Error: {e}")
 
+
 @cli.command()
 @click.option("--days", default=30, help="Days until expiry for automatic renewal")
 @click.option("--dry-run", is_flag=True, help="Don't actually perform renewal")
@@ -142,14 +152,14 @@ def renew(obj, domain, period):
 @click.pass_obj
 def auto_renew(obj, days, dry_run, interactive, all_profiles):
     """Automatically renew expiring domains"""
-    
+
     profiles_to_process = []
     if all_profiles:
         profiles_to_process = obj.config_manager.list_profiles()
         if not profiles_to_process:
             # If no profiles in config, check if we have ENV vars as a pseudo-profile
             if os.getenv("HRD_LOGIN"):
-                 profiles_to_process = [None] # Use default/env logic
+                profiles_to_process = [None]  # Use default/env logic
     else:
         profiles_to_process = [obj.profile_name]
 
@@ -159,7 +169,7 @@ def auto_renew(obj, days, dry_run, interactive, all_profiles):
             ctx_profile = CLIContext(p_name)
         else:
             ctx_profile = obj
-        
+
         click.echo(f"\n--- Processing profile: {p_name or 'default'} ---")
         try:
             client = ctx_profile.get_client()
@@ -167,11 +177,11 @@ def auto_renew(obj, days, dry_run, interactive, all_profiles):
             click.echo(f"Checking for domains expiring within {days} days...")
             domains = client.list_domains()
             expiring = [d for d in domains if d.is_expiring_soon(days)]
-            
+
             if not expiring:
                 click.echo("No domains found for renewal.")
                 continue
-                
+
             for d in expiring:
                 if dry_run:
                     click.echo(f"[DRY RUN] Would renew {d.name}")
@@ -180,7 +190,7 @@ def auto_renew(obj, days, dry_run, interactive, all_profiles):
                         if not click.confirm(f"Renew {d.name}?", default=False):
                             click.echo(f"Skipping {d.name}")
                             continue
-                    
+
                     click.echo(f"Renewing {d.name}...")
                     try:
                         action_id = client.renew_domain(d.name)
@@ -189,6 +199,7 @@ def auto_renew(obj, days, dry_run, interactive, all_profiles):
                         click.echo(f"  Failed: {e}")
         except Exception as e:
             click.echo(f"Error processing profile {p_name or 'default'}: {e}")
+
 
 if __name__ == "__main__":
     cli()

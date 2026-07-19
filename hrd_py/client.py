@@ -4,14 +4,9 @@ from .api import HRDApi
 from .models import Balance, Domain
 from .exceptions import HRDError
 
+
 class HRDClient:
-    def __init__(
-        self,
-        api_login: str,
-        api_pass: str,
-        api_hash: str,
-        **kwargs
-    ):
+    def __init__(self, api_login: str, api_pass: str, api_hash: str, **kwargs):
         self.api = HRDApi(api_login, api_pass, api_hash, **kwargs)
 
     def login(self) -> str:
@@ -19,10 +14,7 @@ class HRDClient:
 
     def get_balance(self) -> Balance:
         data = self.api.partner_get_balance()
-        return Balance(
-            balance=data["balance"],
-            restricted_balance=data["restricted_balance"]
-        )
+        return Balance(balance=data["balance"], restricted_balance=data["restricted_balance"])
 
     def list_domains(self) -> List[Domain]:
         domain_names = []
@@ -33,11 +25,11 @@ class HRDClient:
                 break
             domain_names.extend(batch)
             last_name = batch[-1]
-            # HRD API doesn't seem to have a defined limit per page in PHP code, 
+            # HRD API doesn't seem to have a defined limit per page in PHP code,
             # but usually it's limited. If we get the same last_name, we break to avoid infinite loop.
-            if len(batch) < 2: # Very simple check for small batch
+            if len(batch) < 2:  # Very simple check for small batch
                 break
-        
+
         domains = []
         for name in domain_names:
             try:
@@ -46,24 +38,19 @@ class HRDClient:
             except HRDError:
                 # If info fails for one domain, we might still want to continue
                 domains.append(Domain(name=name, status="unknown"))
-        
+
         return domains
 
     def _parse_domain_info(self, name: str, info: Dict[str, Any]) -> Domain:
         expiry_date = None
         if info.get("exDate"):
             expiry_date = self._parse_date(info["exDate"])
-        
+
         create_date = None
         if info.get("crDate"):
             create_date = self._parse_date(info["crDate"])
-                
-        return Domain(
-            name=name,
-            status=info.get("status", "unknown"),
-            expiry_date=expiry_date,
-            create_date=create_date
-        )
+
+        return Domain(name=name, status=info.get("status", "unknown"), expiry_date=expiry_date, create_date=create_date)
 
     def _parse_date(self, date_str: str) -> Optional[datetime]:
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -93,6 +80,6 @@ class HRDClient:
                 try:
                     action_id = self.renew_domain(domain.name)
                     results[domain.name] = action_id
-                except HRDError as e:
-                    results[domain.name] = -1 # or error message
+                except HRDError:
+                    results[domain.name] = -1  # or error message
         return results

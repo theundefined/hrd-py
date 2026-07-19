@@ -3,6 +3,7 @@ import yaml
 import stat
 from typing import Dict, Any, Optional, List
 
+
 class ConfigManager:
     DEFAULT_PATH = os.path.expanduser("~/.config/hrd/config.yaml")
 
@@ -24,7 +25,7 @@ class ConfigManager:
             os.makedirs(dirname, exist_ok=True)
         with open(self.path, "w") as f:
             yaml.safe_dump(self.config, f)
-        
+
         # Set secure permissions (600)
         os.chmod(self.path, stat.S_IRUSR | stat.S_IWUSR)
 
@@ -37,16 +38,12 @@ class ConfigManager:
     def add_profile(self, name: str, login: str, password: str, api_hash: str):
         if "profiles" not in self.config:
             self.config["profiles"] = {}
-        
-        self.config["profiles"][name] = {
-            "login": login,
-            "password": password,
-            "api_hash": api_hash
-        }
-        
+
+        self.config["profiles"][name] = {"login": login, "password": password, "api_hash": api_hash}
+
         if not self.config.get("default_profile"):
             self.config["default_profile"] = name
-        
+
         self.save()
 
     def set_default(self, name: str):
