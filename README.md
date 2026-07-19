@@ -20,6 +20,15 @@ A Python library and CLI for the HRD.pl API.
 pip install .
 ```
 
+### Shell completion (bash)
+`hrd` uses Click, which provides bash completion out of the box (no extra dependency needed).
+Add this to your `~/.bashrc`:
+```bash
+eval "$(_HRD_COMPLETE=bash_source hrd)"
+```
+Then reload your shell (`source ~/.bashrc` or open a new terminal). `hrd <TAB>` will complete
+subcommands, and `hrd --profile <TAB>` etc. will complete options.
+
 ## Configuration
 Create a `.env` file with your HRD.pl credentials:
 ```env
