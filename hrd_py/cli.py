@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime
 import click
 from .client import HRDClient
 from .exceptions import HRDError
@@ -166,6 +167,45 @@ def domains(obj, all, days):
                 click.echo("No domains found.")
         except HRDError as e:
             click.echo(f"Error processing profile {p_name or 'default'}: {e}")
+
+
+@cli.command()
+@click.option("--limit", default=20, help="Number of most recent operations to show per profile")
+@click.pass_obj
+def history(obj, limit):
+    """Show account operation history (domain purchases, renewals, etc.).
+
+    Shows history for every configured profile by default, merged into one
+    table sorted by date (newest first). Pass a specific profile with the
+    global --profile option to restrict it to just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    rows = []
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            for entry in client.get_history(limit=limit):
+                rows.append((p_name or "default", entry))
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
+
+    if not rows:
+        click.echo("No history found.")
+        return
+
+    rows.sort(key=lambda r: r[1].date or datetime.min, reverse=True)
+
+    click.echo(f"{'DATE':19} | {'OWNER':12} | {'TYPE':10} | {'OBJECT':30} | STATUS")
+    for owner, entry in rows:
+        date_str = entry.date.strftime("%Y-%m-%d %H:%M:%S") if entry.date else "unknown"
+        target = entry.object_name or entry.object
+        click.echo(f"{date_str:19} | {owner:12} | {entry.type:10} | {target:30} | {entry.status}")
 
 
 @cli.command()

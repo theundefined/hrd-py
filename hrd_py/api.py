@@ -206,3 +206,24 @@ class HRDApi:
         if action_id is not None and action_id.text is not None:
             return int(action_id.text)
         raise HRDAPIError(f"Renewal failed for domain {domain_name}")
+
+    def action_list(self, last_id: Optional[int] = None) -> List[int]:
+        params = {}
+        if last_id is not None:
+            params["lastId"] = last_id
+
+        resp = self._request("action", "list", params)
+        ids = resp.findall(".//action/list/id")
+        return [int(i.text) for i in ids if i.text is not None]
+
+    def action_info(self, action_id: int) -> Dict[str, Any]:
+        params = {"id": action_id}
+        resp = self._request("action", "info", params)
+        info_elem = resp.find(".//action/info")
+
+        if info_elem is not None:
+            info = {}
+            for child in info_elem:
+                info[child.tag] = child.text
+            return info
+        raise HRDAPIError(f"Could not find info for action {action_id}")

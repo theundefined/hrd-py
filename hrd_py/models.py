@@ -21,3 +21,14 @@ class Domain:
             return False
         delta = self.expiry_date - datetime.now()
         return delta.days <= days
+
+
+@dataclass
+class HistoryEntry:
+    id: int
+    type: str
+    object: str
+    status: str
+    object_name: Optional[str] = None
+    amount: Optional[float] = None
+    date: Optional[datetime] = None

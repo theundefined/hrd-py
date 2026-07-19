@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .api import HRDApi
-from .models import Balance, Domain
+from .models import Balance, Domain, HistoryEntry
 from .exceptions import HRDError
 
 
@@ -71,6 +71,52 @@ class HRDClient:
 
         # API requires currentExpirationDate as a plain YYYY-MM-DD date (no time component)
         return self.api.domain_renew(domain_name, expiry_date.strftime("%Y-%m-%d"), period)
+
+    def get_history(self, limit: int = 20) -> List[HistoryEntry]:
+        action_ids: List[int] = []
+        last_id = None
+        while True:
+            batch = self.api.action_list(last_id=last_id)
+            if not batch:
+                break
+            action_ids.extend(batch)
+            last_id = batch[-1]
+            if len(batch) < 2:  # Very simple check for small batch
+                break
+
+        # Actions are listed oldest-first; only fetch details for the most recent `limit`
+        # entries, since action_info is one request per id.
+        recent_ids = action_ids[-limit:] if limit else action_ids
+        recent_ids.reverse()
+
+        entries = []
+        for action_id in recent_ids:
+            try:
+                info = self.api.action_info(action_id)
+                entries.append(self._parse_history_entry(action_id, info))
+            except HRDError:
+                continue
+
+        return entries
+
+    def _parse_history_entry(self, action_id: int, info: Dict[str, Any]) -> HistoryEntry:
+        date = None
+        if info.get("added"):
+            date = self._parse_date(info["added"])
+
+        amount = None
+        if info.get("amount"):
+            amount = float(info["amount"])
+
+        return HistoryEntry(
+            id=action_id,
+            type=info.get("type", "unknown"),
+            object=info.get("object", "unknown"),
+            object_name=info.get("objectName"),
+            status=info.get("status", "unknown"),
+            amount=amount,
+            date=date,
+        )
 
     def renew_all_expiring(self, days: int = 30) -> Dict[str, int]:
         domains = self.list_domains()

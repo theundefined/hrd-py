@@ -7,6 +7,7 @@ A Python library and CLI for the HRD.pl API.
 - List domains and their status.
 - Monitor domain expiry.
 - Renew domains manually or automatically.
+- View account operation history (purchases, renewals, etc.).
 
 ## Installation
 ```bash
@@ -30,6 +31,7 @@ hrd expiring --days 30
 hrd renew example.com
 hrd auto-renew --days 7           # asks before renewing each domain, across all profiles
 hrd auto-renew --days 7 --no-ask  # renew without confirmation prompts
+hrd history --limit 20            # recent operations across all profiles, with date and owner
 ```
 
 ### Library
