@@ -1,6 +1,6 @@
 import struct
 import hashlib
-from hrd_py.api import HRDApi
+from hrd_py.api import HRDApi, _redact_pass
 
 
 def test_api_send_receives_correct_framing(mocker):
@@ -31,6 +31,48 @@ def test_api_send_receives_correct_framing(mocker):
     assert "<login>" in xml_sent
 
     # Verify hash: SHA512(XML + binary_api_hash)
+    h = hashlib.sha512()
+    h.update(xml_sent.encode("utf-8"))
+    h.update(bytes.fromhex("deadbeef"))
+    assert h.digest() == hash_sent
+
+
+def test_redact_pass_masks_content_between_tags():
+    xml_str = "<api><login><login>me</login><pass>hunter2</pass><type>partnerApi</type></login></api>"
+    assert (
+        _redact_pass(xml_str)
+        == "<api><login><login>me</login><pass>********</pass><type>partnerApi</type></login></api>"
+    )
+
+
+def test_redact_pass_leaves_xml_without_pass_tag_untouched():
+    xml_str = "<api><domain><info><name>example.com</name></info></domain></api>"
+    assert _redact_pass(xml_str) == xml_str
+
+
+def test_debug_mode_masks_password_in_printed_request_but_not_in_signed_bytes(mocker, capsys):
+    mocker.patch("socket.create_connection")
+    mock_context = mocker.patch("ssl.create_default_context")
+    mock_ssl_sock = mock_context.return_value.wrap_socket.return_value
+
+    api = HRDApi("login", "hunter2", "deadbeef", verify_peer=False, debug=True)
+
+    xml_response = '<api xmlns="http://api.hrd.pl/api/"><status>ok</status><token>test_token</token></api>'
+    resp_bytes = xml_response.encode("utf-8")
+    mock_ssl_sock.recv.side_effect = [struct.pack(">I", len(resp_bytes)), resp_bytes]
+
+    api.login()
+
+    printed = capsys.readouterr().out
+    assert "<pass>********</pass>" in printed
+    assert "hunter2" not in printed
+
+    # The signature must still cover the *unmasked* XML that was actually sent.
+    sent_data = mock_ssl_sock.sendall.call_args[0][0]
+    hash_sent = sent_data[4:68]
+    xml_sent = sent_data[68:].decode("utf-8")
+    assert "<pass>hunter2</pass>" in xml_sent
+
     h = hashlib.sha512()
     h.update(xml_sent.encode("utf-8"))
     h.update(bytes.fromhex("deadbeef"))

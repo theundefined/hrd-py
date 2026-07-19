@@ -1,3 +1,4 @@
+import re
 import socket
 import ssl
 import hashlib
@@ -5,6 +6,14 @@ import struct
 import xml.etree.ElementTree as ET
 from typing import Optional, List, Dict, Any
 from .exceptions import HRDCommunicationError, HRDAPIError, HRDAuthError
+
+_PASS_TAG_RE = re.compile(r"(<pass>).*?(</pass>)", re.DOTALL)
+
+
+def _redact_pass(xml_str: str) -> str:
+    """Mask the content of <pass>...</pass> for debug printing (the login password);
+    never applied to the XML that's actually signed/sent, only to what's printed."""
+    return _PASS_TAG_RE.sub(lambda m: f"{m.group(1)}{'*' * 8}{m.group(2)}", xml_str)
 
 
 class HRDApi:
@@ -138,14 +147,14 @@ class HRDApi:
         xml_str = ET.tostring(root, encoding="unicode")
 
         if self.debug:
-            print(f">>> REQUEST  {module}/{method}\n{xml_str}\n")
+            print(f">>> REQUEST  {module}/{method}\n{_redact_pass(xml_str)}\n")
 
         self._send(xml_str)
 
         response_xml = self._read()
 
         if self.debug:
-            print(f"<<< RESPONSE {module}/{method}\n{response_xml}\n")
+            print(f"<<< RESPONSE {module}/{method}\n{_redact_pass(response_xml)}\n")
 
         # The PHP code removes the xmlns before parsing
         response_xml = response_xml.replace('xmlns="http://api.hrd.pl/api/"', "")

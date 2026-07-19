@@ -63,8 +63,10 @@ to be added):
   - The session `token` returned by `login` is **not** resent in later requests — auth is carried
     entirely by the per-request signature. Don't "fix" this by adding the token back into requests.
   - `HRDApi(..., debug=True)` (wired to the CLI's `--debug` flag) prints every request/response XML
-    in `_execute()` — including the plaintext password in the `login` request, so treat `--debug`
-    output as sensitive. `domain_info`'s nested fields (`ns`, `host`, `dnssec`, `actions`) need
+    in `_execute()`. The password in the `login` request's `<pass>...</pass>` is masked with
+    asterisks by `_redact_pass()` before printing — but only for the printed copy; the original
+    `xml_str` (unmasked) is still what actually gets signed and sent, since the signature must
+    cover the exact bytes transmitted. `domain_info`'s nested fields (`ns`, `host`, `dnssec`, `actions`) need
     dedicated parsing helpers (`_parse_ns_element`, `_parse_host_element`) since they contain child
     elements rather than a flat `.text`, unlike every other field on that response.
   - Most methods build their request via the flat-dict `_request(module, method, params)` helper

@@ -59,7 +59,7 @@ hrd host update ns1.example.com --ipv4 1.2.3.5
 hrd host delete ns1.example.com
 hrd notifications                 # peek at the oldest pending account notification per profile
 hrd notifications --ack --limit 10  # drain and acknowledge up to 10 notifications
-hrd --debug balance               # print raw API requests/responses (includes credentials!)
+hrd --debug balance               # print raw API requests/responses (password is masked)
 ```
 
 ### Library
