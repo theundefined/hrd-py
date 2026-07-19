@@ -19,6 +19,7 @@ hrd balance
 hrd domains --all
 hrd history --limit 20
 hrd domain-info example.com
+hrd owner-info 173216
 hrd renew example.com
 hrd auto-renew --days 7 --dry-run
 
@@ -71,7 +72,11 @@ to be added):
   most recent `limit` ids, to avoid one round trip per historical action ever performed on the
   account. `get_domain_details(name)` resolves the registrant/owner by feeding `domain_info`'s
   `user` id into `user_info` — the API exposes no separate "sale"/invoice concept, so `Owner` is
-  the closest thing to billing-relevant contact data.
+  the closest thing to billing-relevant contact data. `Domain.owner_id`/`DomainDetails.owner_id`
+  hold that same raw numeric subscriber id even when the `Owner` lookup itself fails or is
+  skipped; `get_owner(owner_id)` resolves it standalone, and finding "every domain a subscriber
+  owns" is just `[d for d in list_domains() if d.owner_id == owner_id]` — the API has no
+  dedicated by-owner domain query.
 - **`hrd_py/models.py`** — plain dataclasses. `Domain.is_expiring_soon(days=30)` is a **method**,
   not a property — call it as `d.is_expiring_soon()`/`d.is_expiring_soon(days)`.
 - **`hrd_py/config.py` (`ConfigManager`)** — multi-profile credential storage at
@@ -89,7 +94,11 @@ to be added):
   `profile_name` (that value falling back to the configured default) is the distinction that
   drives this. `auto-renew` also asks for confirmation before renewing each domain (showing its
   expiry date) unless `--no-ask` is passed. `history` merges every profile's entries into one
-  table sorted by date, tagging each row with its owning profile.
+  table sorted by date, tagging each row with its owning profile. `domain-info`, `owner-info`, and
+  `renew` target a single domain/subscriber rather than iterating everything per profile, but
+  still loop over `get_profiles_to_process()` and stop at the first profile that actually has it
+  — a domain/subscriber belongs to exactly one profile, but the CLI has no way to know which one
+  without asking the API, so `--profile` is only needed to skip that search or to disambiguate.
 - **`hrd_py/exceptions.py`** — `HRDError` base, with `HRDCommunicationError` (socket/framing),
   `HRDAuthError` (login), and `HRDAPIError` (API returned an error status/message).
 

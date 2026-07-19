@@ -15,6 +15,7 @@ class Domain:
     status: str
     expiry_date: Optional[datetime] = None
     create_date: Optional[datetime] = None
+    owner_id: Optional[int] = None
 
     def is_expiring_soon(self, days: int = 30) -> bool:
         if not self.expiry_date:
@@ -37,6 +38,7 @@ class HistoryEntry:
 @dataclass
 class Owner:
     name: str
+    id: Optional[int] = None
     type: Optional[str] = None
     email: Optional[str] = None
     street: Optional[str] = None
@@ -60,4 +62,5 @@ class DomainDetails:
     hosts: List[Dict[str, Any]] = field(default_factory=list)
     dnssec_records: List[Dict[str, Any]] = field(default_factory=list)
     action_ids: List[int] = field(default_factory=list)
+    owner_id: Optional[int] = None
     owner: Optional[Owner] = None

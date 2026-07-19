@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime
+from typing import Optional
 import click
 from .client import HRDClient
 from .exceptions import HRDError
@@ -175,11 +176,27 @@ def domains(obj, all, days):
 @click.argument("domain")
 @click.pass_obj
 def domain_info(obj, domain):
-    """Show all available information about a domain, including its owner."""
-    client = obj.get_client()
-    try:
-        client.login()
-        d = client.get_domain_details(domain)
+    """Show all available information about a domain, including its owner.
+
+    Searches every configured profile by default to find which account the
+    domain belongs to. Pass a specific profile with the global --profile
+    option to skip that search and query just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            d = client.get_domain_details(domain)
+        except HRDError as e:
+            last_error = e
+            continue
 
         click.echo(f"Domain:      {d.name}")
         click.echo(f"Status:      {d.status}")
@@ -202,6 +219,8 @@ def domain_info(obj, domain):
             click.echo(f"Actions:     {', '.join(str(i) for i in d.action_ids)}")
 
         click.echo("\nOwner:")
+        if d.owner_id is not None:
+            click.echo(f"  ID:      {d.owner_id}")
         if d.owner:
             click.echo(f"  Name:    {d.owner.name}")
             if d.owner.type:
@@ -219,8 +238,61 @@ def domain_info(obj, domain):
                 click.echo(f"  Mobile:  {d.owner.mobile_phone}")
         else:
             click.echo("  unknown")
-    except HRDError as e:
-        click.echo(f"Error: {e}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Domain '{domain}' not found in any configured profile.")
+
+
+@cli.command(name="owner-info")
+@click.argument("owner_id", type=int)
+@click.pass_obj
+def owner_info(obj, owner_id):
+    """Show a subscriber's (abonent's) details and every domain they own.
+
+    Searches every configured profile by default to find which account the
+    subscriber belongs to. Pass a specific profile with the global --profile
+    option to skip that search and query just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            owner = client.get_owner(owner_id)
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"ID:      {owner_id}")
+        click.echo(f"Name:    {owner.name}")
+        if owner.type:
+            click.echo(f"Type:    {owner.type}")
+        if owner.id_number:
+            click.echo(f"Tax/ID:  {owner.id_number}")
+        if owner.email:
+            click.echo(f"Email:   {owner.email}")
+        address = ", ".join(p for p in (owner.street, owner.postcode, owner.city, owner.country) if p)
+        if address:
+            click.echo(f"Address: {address}")
+        if owner.landline_phone:
+            click.echo(f"Phone:   {owner.landline_phone}")
+        if owner.mobile_phone:
+            click.echo(f"Mobile:  {owner.mobile_phone}")
+
+        owned_domains = [d for d in client.list_domains() if d.owner_id == owner_id]
+        click.echo(f"\nDomains ({len(owned_domains)}):")
+        for d in owned_domains:
+            expiry_str = d.expiry_date.strftime("%Y-%m-%d") if d.expiry_date else "unknown"
+            click.echo(f"  {d.name:30} | {expiry_str:10} | {d.status}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Owner id {owner_id} not found in any configured profile.")
 
 
 @cli.command()
@@ -268,15 +340,34 @@ def history(obj, limit):
 @click.option("--period", default=1, help="Renewal period in years")
 @click.pass_obj
 def renew(obj, domain, period):
-    """Renew a specific domain"""
-    client = obj.get_client()
-    try:
-        client.login()
-        click.echo(f"Renewing domain {domain} for {period} year(s)...")
-        action_id = client.renew_domain(domain, period)
+    """Renew a specific domain.
+
+    Searches every configured profile by default to find which account the
+    domain belongs to. Pass a specific profile with the global --profile
+    option to skip that search and target just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    click.echo(f"Renewing domain {domain} for {period} year(s)...")
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            action_id = client.renew_domain(domain, period)
+        except HRDError as e:
+            last_error = e
+            continue
+
         click.echo(f"Success! Action ID: {action_id}")
-    except HRDError as e:
-        click.echo(f"Error: {e}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Domain '{domain}' not found in any configured profile.")
 
 
 @cli.command()

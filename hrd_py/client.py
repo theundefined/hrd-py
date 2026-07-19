@@ -50,7 +50,15 @@ class HRDClient:
         if info.get("crDate"):
             create_date = self._parse_date(info["crDate"])
 
-        return Domain(name=name, status=info.get("status", "unknown"), expiry_date=expiry_date, create_date=create_date)
+        owner_id = int(info["user"]) if info.get("user") else None
+
+        return Domain(
+            name=name,
+            status=info.get("status", "unknown"),
+            expiry_date=expiry_date,
+            create_date=create_date,
+            owner_id=owner_id,
+        )
 
     def _parse_date(self, date_str: str) -> Optional[datetime]:
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -121,11 +129,11 @@ class HRDClient:
     def get_domain_details(self, domain_name: str) -> DomainDetails:
         info = self.api.domain_info(domain_name)
 
+        owner_id = int(info["user"]) if info.get("user") else None
         owner = None
-        user_id = info.get("user")
-        if user_id:
+        if owner_id is not None:
             try:
-                owner = self._parse_owner(self.api.user_info(int(user_id)))
+                owner = self.get_owner(owner_id)
             except HRDError:
                 owner = None
 
@@ -140,12 +148,18 @@ class HRDClient:
             hosts=info.get("host", []),
             dnssec_records=info.get("dnssec", []),
             action_ids=info.get("actions", []),
+            owner_id=owner_id,
             owner=owner,
         )
 
-    def _parse_owner(self, data: Dict[str, Any]) -> Owner:
+    def get_owner(self, owner_id: int) -> Owner:
+        data = self.api.user_info(owner_id)
+        return self._parse_owner(data, owner_id)
+
+    def _parse_owner(self, data: Dict[str, Any], owner_id: Optional[int] = None) -> Owner:
         return Owner(
             name=data.get("name", "unknown"),
+            id=owner_id,
             type=data.get("type"),
             email=data.get("email"),
             street=data.get("street"),

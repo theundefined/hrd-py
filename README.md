@@ -9,6 +9,7 @@ A Python library and CLI for the HRD.pl API.
 - Renew domains manually or automatically.
 - View account operation history (purchases, renewals, etc.).
 - Show full domain details, including the registrant/owner.
+- Look up a subscriber (abonent) and every domain they own.
 
 ## Installation
 ```bash
@@ -34,6 +35,7 @@ hrd auto-renew --days 7           # asks before renewing each domain, across all
 hrd auto-renew --days 7 --no-ask  # renew without confirmation prompts
 hrd history --limit 20            # recent operations across all profiles, with date and owner
 hrd domain-info example.com       # full domain details, including the owner
+hrd owner-info 173216             # subscriber details and every domain they own
 hrd --debug balance               # print raw API requests/responses (includes credentials!)
 ```
 
