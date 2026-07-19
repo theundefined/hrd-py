@@ -13,6 +13,7 @@ load_dotenv(override=True)
 class CLIContext:
     def __init__(self, profile=None):
         self.config_manager = ConfigManager()
+        self.explicit_profile = profile
         self.profile_name = profile or self.config_manager.get_default_profile_name()
         self._client = None
 
@@ -147,28 +148,31 @@ def renew(obj, domain, period):
 @cli.command()
 @click.option("--days", default=30, help="Days until expiry for automatic renewal")
 @click.option("--dry-run", is_flag=True, help="Don't actually perform renewal")
-@click.option("--interactive", "-i", is_flag=True, help="Confirm each domain before renewal")
-@click.option("--all-profiles", is_flag=True, help="Process all configured profiles")
+@click.option("--no-ask", is_flag=True, help="Don't ask for confirmation before renewing each domain")
 @click.pass_obj
-def auto_renew(obj, days, dry_run, interactive, all_profiles):
-    """Automatically renew expiring domains"""
+def auto_renew(obj, days, dry_run, no_ask):
+    """Automatically renew expiring domains.
 
-    profiles_to_process = []
-    if all_profiles:
+    Processes all configured profiles by default. Pass a specific profile
+    with the global --profile option to restrict it to just that one.
+    """
+
+    if obj.explicit_profile:
+        profiles_to_process = [obj.explicit_profile]
+    else:
         profiles_to_process = obj.config_manager.list_profiles()
         if not profiles_to_process:
             # If no profiles in config, check if we have ENV vars as a pseudo-profile
             if os.getenv("HRD_LOGIN"):
                 profiles_to_process = [None]  # Use default/env logic
-    else:
-        profiles_to_process = [obj.profile_name]
+
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
 
     for p_name in profiles_to_process:
-        # Create a fresh context for each profile if processing all
-        if all_profiles:
-            ctx_profile = CLIContext(p_name)
-        else:
-            ctx_profile = obj
+        # Create a fresh context per profile, unless the user pinned one explicitly
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
 
         click.echo(f"\n--- Processing profile: {p_name or 'default'} ---")
         try:
@@ -183,11 +187,12 @@ def auto_renew(obj, days, dry_run, interactive, all_profiles):
                 continue
 
             for d in expiring:
+                expiry_str = d.expiry_date.strftime("%Y-%m-%d") if d.expiry_date else "unknown"
                 if dry_run:
-                    click.echo(f"[DRY RUN] Would renew {d.name}")
+                    click.echo(f"[DRY RUN] Would renew {d.name} (expires {expiry_str})")
                 else:
-                    if interactive:
-                        if not click.confirm(f"Renew {d.name}?", default=False):
+                    if not no_ask:
+                        if not click.confirm(f"Renew {d.name} (expires {expiry_str})?", default=False):
                             click.echo(f"Skipping {d.name}")
                             continue
 

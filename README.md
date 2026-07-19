@@ -28,7 +28,8 @@ hrd balance
 hrd domains --all
 hrd expiring --days 30
 hrd renew example.com
-hrd auto-renew --days 7
+hrd auto-renew --days 7           # asks before renewing each domain, across all profiles
+hrd auto-renew --days 7 --no-ask  # renew without confirmation prompts
 ```
 
 ### Library

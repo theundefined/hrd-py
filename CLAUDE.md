@@ -59,8 +59,9 @@ to be added):
   (1) named/default profile from `ConfigManager`, (2) `HRD_LOGIN`/`HRD_PASS`/`HRD_HASH` env vars
   (via `.env`, loaded with `load_dotenv(override=True)` so `.env` always wins over pre-existing
   shell env vars) — env fallback only applies when no specific non-default profile was requested.
-  `auto-renew --all-profiles` iterates every configured profile, creating a fresh `CLIContext`
-  per profile.
+  `auto-renew` processes every configured profile by default (fresh `CLIContext` per profile),
+  unless the global `--profile` option pins it to one. It also asks for confirmation before
+  renewing each domain (showing its expiry date) unless `--no-ask` is passed.
 - **`hrd_py/exceptions.py`** — `HRDError` base, with `HRDCommunicationError` (socket/framing),
   `HRDAuthError` (login), and `HRDAPIError` (API returned an error status/message).
 
