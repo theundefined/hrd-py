@@ -41,6 +41,16 @@ class CLIContext:
         click.echo("Use 'hrd profile add' to set up credentials.")
         sys.exit(1)
 
+    def get_profiles_to_process(self):
+        """Profiles to iterate for multi-profile commands: the pinned one, or all configured."""
+        if self.explicit_profile:
+            return [self.explicit_profile]
+
+        profiles = self.config_manager.list_profiles()
+        if not profiles and os.getenv("HRD_LOGIN"):
+            profiles = [None]  # Use default/env logic
+        return profiles
+
 
 @click.group()
 @click.option("--profile", help="Use a specific profile from config")
@@ -96,16 +106,28 @@ def profile_set_default(obj, name):
 @cli.command()
 @click.pass_obj
 def balance(obj):
-    """Show account balance"""
-    client = obj.get_client()
-    try:
-        client.login()
-        b = client.get_balance()
-        click.echo(f"Profile: {obj.profile_name or 'default'}")
-        click.echo(f"Current Balance: {b.balance}")
-        click.echo(f"Restricted Balance: {b.restricted_balance}")
-    except HRDError as e:
-        click.echo(f"Error: {e}")
+    """Show account balance.
+
+    Shows the balance for every configured profile by default. Pass a
+    specific profile with the global --profile option to restrict it to
+    just that one.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            b = client.get_balance()
+            click.echo(f"Profile: {p_name or 'default'}")
+            click.echo(f"Current Balance: {b.balance}")
+            click.echo(f"Restricted Balance: {b.restricted_balance}")
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
 
 
 @cli.command()
@@ -157,15 +179,7 @@ def auto_renew(obj, days, dry_run, no_ask):
     with the global --profile option to restrict it to just that one.
     """
 
-    if obj.explicit_profile:
-        profiles_to_process = [obj.explicit_profile]
-    else:
-        profiles_to_process = obj.config_manager.list_profiles()
-        if not profiles_to_process:
-            # If no profiles in config, check if we have ENV vars as a pseudo-profile
-            if os.getenv("HRD_LOGIN"):
-                profiles_to_process = [None]  # Use default/env logic
-
+    profiles_to_process = obj.get_profiles_to_process()
     if not profiles_to_process:
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
