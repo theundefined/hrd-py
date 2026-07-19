@@ -10,6 +10,10 @@ A Python library and CLI for the HRD.pl API.
 - View account operation history (purchases, renewals, etc.).
 - Show full domain details, including the registrant/owner.
 - Look up a subscriber (abonent) and every domain they own.
+- List every subscriber on an account.
+- Update a domain's nameservers.
+- Manage glue host records (create, update, delete, list, info).
+- Read pending account notifications (poll queue).
 
 ## Installation
 ```bash
@@ -33,9 +37,19 @@ hrd expiring --days 30
 hrd renew example.com
 hrd auto-renew --days 7           # asks before renewing each domain, across all profiles
 hrd auto-renew --days 7 --no-ask  # renew without confirmation prompts
-hrd history --limit 20            # recent operations across all profiles, with date and owner
+hrd history --limit 20            # recent operations across all profiles, with date and profile
 hrd domain-info example.com       # full domain details, including the owner
 hrd owner-info 173216             # subscriber details and every domain they own
+hrd owner-list                    # every subscriber id on the account(s)
+hrd owner-list --details          # ... plus each subscriber's name
+hrd nameservers example.com ns1.example.com ns2.example.com  # update a domain's nameservers
+hrd host list                     # list glue host records
+hrd host info ns1.example.com     # show a glue host's IP addresses
+hrd host create ns1.example.com --ipv4 1.2.3.4
+hrd host update ns1.example.com --ipv4 1.2.3.5
+hrd host delete ns1.example.com
+hrd notifications                 # peek at the oldest pending account notification per profile
+hrd notifications --ack --limit 10  # drain and acknowledge up to 10 notifications
 hrd --debug balance               # print raw API requests/responses (includes credentials!)
 ```
 

@@ -119,6 +119,19 @@ class HRDApi:
         if params:
             self._dict_to_xml(target_elem, params)
 
+        return self._execute(root, module, method)
+
+    def _request_custom(self, module: str, method: str, build_fn) -> ET.Element:
+        """Like _request, but lets the caller populate the target element directly
+        (via ElementTree calls) instead of through the flat-dict _dict_to_xml helper,
+        for requests with nested/repeated elements (e.g. nameserver lists)."""
+        root = ET.Element("api", xmlns="http://api.hrd.pl/api/")
+        module_elem = ET.SubElement(root, module)
+        target_elem = ET.SubElement(module_elem, method) if method else module_elem
+        build_fn(target_elem)
+        return self._execute(root, module, method)
+
+    def _execute(self, root: ET.Element, module: str, method: str) -> ET.Element:
         # PHP's saveXML() usually includes the XML declaration and some whitespace
         # but the schema validation might depend on it.
         # Let's try without declaration first as we did before, but with encoding="utf-8"
@@ -274,3 +287,96 @@ class HRDApi:
                 info[child.tag] = child.text
             return info
         raise HRDAPIError(f"Could not find info for user {user_id}")
+
+    def user_list(self, last_id: Optional[int] = None) -> List[int]:
+        params: Dict[str, Any] = {}
+        if last_id is not None:
+            params["lastId"] = last_id
+        resp = self._request("user", "list", params)
+        ids = resp.findall(".//user/list/id")
+        return [int(i.text) for i in ids if i.text is not None]
+
+    def domain_update(self, domain_name: str, nameservers: List[str]) -> Optional[int]:
+        # nsOrGroupType (simple form): <name/><ns><ns><ns><name/></ns>...</ns></ns>
+        # The API requires between 2 and 16 nameservers here.
+        def build(target: ET.Element) -> None:
+            ET.SubElement(target, "name").text = domain_name
+            ns_choice = ET.SubElement(target, "ns")
+            ns_list = ET.SubElement(ns_choice, "ns")
+            for server in nameservers:
+                ns_item = ET.SubElement(ns_list, "ns")
+                ET.SubElement(ns_item, "name").text = server
+
+        resp = self._request_custom("domain", "update", build)
+        action_id = resp.find(".//domain/update/actionId")
+        if action_id is not None and action_id.text is not None:
+            return int(action_id.text)
+        return None
+
+    def _domain_host_action(
+        self, method: str, name: str, ipv4: Optional[List[str]], ipv6: Optional[List[str]]
+    ) -> Optional[int]:
+        def build(target: ET.Element) -> None:
+            ET.SubElement(target, "name").text = name
+            for ip in ipv4 or []:
+                ET.SubElement(target, "ipv4").text = ip
+            for ip in ipv6 or []:
+                ET.SubElement(target, "ipv6").text = ip
+
+        resp = self._request_custom("domain", method, build)
+        action_id = resp.find(f".//domain/{method}/actionId")
+        if action_id is not None and action_id.text is not None:
+            return int(action_id.text)
+        return None
+
+    def domain_host_create(
+        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
+    ) -> Optional[int]:
+        return self._domain_host_action("hostCreate", name, ipv4, ipv6)
+
+    def domain_host_update(
+        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
+    ) -> Optional[int]:
+        return self._domain_host_action("hostUpdate", name, ipv4, ipv6)
+
+    def domain_host_delete(self, name: str) -> Optional[int]:
+        params = {"name": name}
+        resp = self._request("domain", "hostDelete", params)
+        action_id = resp.find(".//domain/hostDelete/actionId")
+        if action_id is not None and action_id.text is not None:
+            return int(action_id.text)
+        return None
+
+    def domain_host_info(self, name: str) -> Dict[str, Any]:
+        params = {"name": name}
+        resp = self._request("domain", "hostInfo", params)
+        info_elem = resp.find(".//domain/hostInfo")
+        if info_elem is None:
+            raise HRDAPIError(f"Could not find host info for {name}")
+
+        info: Dict[str, Any] = {"ips": []}
+        for child in info_elem:
+            if child.tag in ("ipv4", "ipv6") and child.text is not None:
+                info["ips"].append(child.text)
+            else:
+                info[child.tag] = child.text
+        return info
+
+    def domain_host_list(self, last_name: Optional[str] = None) -> List[str]:
+        params: Dict[str, Any] = {}
+        if last_name:
+            params["lastName"] = last_name
+        resp = self._request("domain", "hostList", params)
+        names = resp.findall(".//domain/hostList/name")
+        return [n.text for n in names if n.text is not None]
+
+    def poll_get(self) -> Optional[Dict[str, Any]]:
+        resp = self._request("poll", "get")
+        get_elem = resp.find(".//poll/get")
+        if get_elem is None or len(get_elem) == 0:
+            return None
+        return {child.tag: child.text for child in get_elem}
+
+    def poll_ack(self, poll_id: int) -> None:
+        params = {"id": poll_id}
+        self._request("poll", "ack", params)

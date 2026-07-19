@@ -301,9 +301,10 @@ def owner_info(obj, owner_id):
 def history(obj, limit):
     """Show account operation history (domain purchases, renewals, etc.).
 
-    Shows history for every configured profile by default, merged into one
-    table sorted by date (newest first). Pass a specific profile with the
-    global --profile option to restrict it to just that one.
+    Shows history for every configured profile (partner/reseller account)
+    by default, merged into one table sorted by date (newest first). Pass a
+    specific profile with the global --profile option to restrict it to
+    just that one.
     """
     profiles_to_process = obj.get_profiles_to_process()
     if not profiles_to_process:
@@ -327,12 +328,12 @@ def history(obj, limit):
 
     rows.sort(key=lambda r: r[1].date or datetime.min, reverse=True)
 
-    click.echo(f"{'DATE':19} | {'OWNER':12} | {'TYPE':10} | {'OBJECT':30} | {'COST':>10} | STATUS")
-    for owner, entry in rows:
+    click.echo(f"{'DATE':19} | {'PROFILE':12} | {'TYPE':10} | {'OBJECT':30} | {'COST':>10} | STATUS")
+    for profile, entry in rows:
         date_str = entry.date.strftime("%Y-%m-%d %H:%M:%S") if entry.date else "unknown"
         target = entry.object_name or entry.object
         cost_str = f"{entry.amount:.2f}" if entry.amount is not None else "-"
-        click.echo(f"{date_str:19} | {owner:12} | {entry.type:10} | {target:30} | {cost_str:>10} | {entry.status}")
+        click.echo(f"{date_str:19} | {profile:12} | {entry.type:10} | {target:30} | {cost_str:>10} | {entry.status}")
 
 
 @cli.command()
@@ -368,6 +369,302 @@ def renew(obj, domain, period):
         return
 
     click.echo(f"Error: {last_error}" if last_error else f"Domain '{domain}' not found in any configured profile.")
+
+
+@cli.command(name="nameservers")
+@click.argument("domain")
+@click.argument("nameservers", nargs=-1, required=True)
+@click.pass_obj
+def nameservers_cmd(obj, domain, nameservers):
+    """Update a domain's nameservers.
+
+    Pass the new nameserver hostnames as extra arguments, e.g.
+    'hrd nameservers example.com ns1.example.com ns2.example.com'. The API
+    requires at least 2 nameservers. Searches every configured profile by
+    default to find which account the domain belongs to.
+    """
+    if len(nameservers) < 2:
+        click.echo("Error: at least 2 nameservers are required.")
+        return
+
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            action_id = client.update_nameservers(domain, list(nameservers))
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"Nameservers for {domain} updated to: {', '.join(nameservers)}")
+        if action_id is not None:
+            click.echo(f"Action ID: {action_id}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Domain '{domain}' not found in any configured profile.")
+
+
+@cli.group()
+def host():
+    """Manage glue host records (nameservers hosted under a domain you control)."""
+    pass
+
+
+@host.command(name="list")
+@click.pass_obj
+def host_list(obj):
+    """List glue hosts.
+
+    Processes every configured profile by default.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        click.echo(f"\n--- Profile: {p_name or 'default'} ---")
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            hosts = client.list_hosts()
+            if not hosts:
+                click.echo("No hosts found.")
+            for h in hosts:
+                click.echo(h)
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
+
+
+@host.command(name="info")
+@click.argument("name")
+@click.pass_obj
+def host_info(obj, name):
+    """Show a glue host's configured IP addresses.
+
+    Searches every configured profile by default.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            info = client.get_host(name)
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"Name: {info.get('name', name)}")
+        click.echo(f"IPs:  {', '.join(info.get('ips', [])) or 'none'}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Host '{name}' not found in any configured profile.")
+
+
+@host.command(name="create")
+@click.argument("name")
+@click.option("--ipv4", multiple=True, help="IPv4 address (repeatable)")
+@click.option("--ipv6", multiple=True, help="IPv6 address (repeatable)")
+@click.pass_obj
+def host_create(obj, name, ipv4, ipv6):
+    """Create a glue host record.
+
+    Searches every configured profile by default to find which account the
+    parent domain belongs to.
+    """
+    if not ipv4 and not ipv6:
+        click.echo("Error: provide at least one --ipv4 or --ipv6 address.")
+        return
+
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            action_id = client.create_host(name, list(ipv4), list(ipv6))
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"Host {name} created.")
+        if action_id is not None:
+            click.echo(f"Action ID: {action_id}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else "Could not create host in any configured profile.")
+
+
+@host.command(name="update")
+@click.argument("name")
+@click.option("--ipv4", multiple=True, help="IPv4 address (repeatable)")
+@click.option("--ipv6", multiple=True, help="IPv6 address (repeatable)")
+@click.pass_obj
+def host_update(obj, name, ipv4, ipv6):
+    """Update a glue host's IP addresses.
+
+    Searches every configured profile by default.
+    """
+    if not ipv4 and not ipv6:
+        click.echo("Error: provide at least one --ipv4 or --ipv6 address.")
+        return
+
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            action_id = client.update_host(name, list(ipv4), list(ipv6))
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"Host {name} updated.")
+        if action_id is not None:
+            click.echo(f"Action ID: {action_id}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Host '{name}' not found in any configured profile.")
+
+
+@host.command(name="delete")
+@click.argument("name")
+@click.pass_obj
+def host_delete(obj, name):
+    """Delete a glue host record.
+
+    Searches every configured profile by default.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    last_error: Optional[HRDError] = None
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            action_id = client.delete_host(name)
+        except HRDError as e:
+            last_error = e
+            continue
+
+        click.echo(f"Host {name} deleted.")
+        if action_id is not None:
+            click.echo(f"Action ID: {action_id}")
+        return
+
+    click.echo(f"Error: {last_error}" if last_error else f"Host '{name}' not found in any configured profile.")
+
+
+@cli.command()
+@click.option("--limit", default=20, help="Maximum number of notifications to show/drain per profile")
+@click.option("--ack", is_flag=True, help="Acknowledge each notification after showing it, advancing the queue")
+@click.pass_obj
+def notifications(obj, limit, ack):
+    """Show pending account notifications (poll queue).
+
+    Without --ack, only peeks at the oldest pending notification per profile
+    (the API always returns the same one until it is acknowledged). With
+    --ack, drains up to --limit notifications per profile, acknowledging
+    each one as it is shown so the next call returns the following one.
+    Processes every configured profile by default.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        click.echo(f"\n--- Profile: {p_name or 'default'} ---")
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            shown = 0
+            while shown < limit:
+                note = client.get_next_notification()
+                if not note:
+                    break
+
+                target = note.get("objectName") or note.get("objectId") or ""
+                added = note.get("added") or "unknown"
+                click.echo(f"#{note.get('id')} | {added:19} | {note.get('object')} {target} | {note.get('action')}")
+                shown += 1
+
+                if ack and note.get("id"):
+                    client.ack_notification(int(note["id"]))
+                else:
+                    break
+
+            if shown == 0:
+                click.echo("No pending notifications.")
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
+
+
+@cli.command(name="owner-list")
+@click.option("--details", is_flag=True, help="Fetch each subscriber's name too (one extra API call per subscriber)")
+@click.pass_obj
+def owner_list(obj, details):
+    """List every subscriber (abonent) id on the account.
+
+    Processes every configured profile by default.
+    """
+    profiles_to_process = obj.get_profiles_to_process()
+    if not profiles_to_process:
+        click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
+        return
+
+    for p_name in profiles_to_process:
+        ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
+        click.echo(f"\n--- Profile: {p_name or 'default'} ---")
+        try:
+            client = ctx_profile.get_client()
+            client.login()
+            owner_ids = client.list_owner_ids()
+            if not owner_ids:
+                click.echo("No subscribers found.")
+                continue
+
+            for oid in owner_ids:
+                if details:
+                    try:
+                        owner = client.get_owner(oid)
+                        click.echo(f"{oid:10} | {owner.name}")
+                    except HRDError as e:
+                        click.echo(f"{oid:10} | Error: {e}")
+                else:
+                    click.echo(str(oid))
+        except HRDError as e:
+            click.echo(f"Error processing profile {p_name or 'default'}: {e}")
 
 
 @cli.command()

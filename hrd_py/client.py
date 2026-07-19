@@ -171,6 +171,57 @@ class HRDClient:
             mobile_phone=data.get("mobilePhone"),
         )
 
+    def update_nameservers(self, domain_name: str, nameservers: List[str]) -> Optional[int]:
+        return self.api.domain_update(domain_name, nameservers)
+
+    def list_hosts(self) -> List[str]:
+        names: List[str] = []
+        last_name = None
+        while True:
+            batch = self.api.domain_host_list(last_name=last_name)
+            if not batch:
+                break
+            names.extend(batch)
+            last_name = batch[-1]
+            if len(batch) < 2:
+                break
+        return names
+
+    def get_host(self, name: str) -> Dict[str, Any]:
+        return self.api.domain_host_info(name)
+
+    def create_host(
+        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
+    ) -> Optional[int]:
+        return self.api.domain_host_create(name, ipv4, ipv6)
+
+    def update_host(
+        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
+    ) -> Optional[int]:
+        return self.api.domain_host_update(name, ipv4, ipv6)
+
+    def delete_host(self, name: str) -> Optional[int]:
+        return self.api.domain_host_delete(name)
+
+    def get_next_notification(self) -> Optional[Dict[str, Any]]:
+        return self.api.poll_get()
+
+    def ack_notification(self, notification_id: int) -> None:
+        self.api.poll_ack(notification_id)
+
+    def list_owner_ids(self) -> List[int]:
+        ids: List[int] = []
+        last_id = None
+        while True:
+            batch = self.api.user_list(last_id=last_id)
+            if not batch:
+                break
+            ids.extend(batch)
+            last_id = batch[-1]
+            if len(batch) < 2:
+                break
+        return ids
+
     def renew_all_expiring(self, days: int = 30) -> Dict[str, int]:
         domains = self.list_domains()
         results = {}
