@@ -5,7 +5,6 @@ set -e
 
 # Configuration
 PROJECT_NAME="hrd-py"
-DEFAULT_INITIAL_VERSION="v0.1.0"
 VERSION_BUMP_TYPE="patch" # Can be major, minor, patch
 
 # Function to display usage
@@ -33,15 +32,12 @@ fi
 echo "Fetching latest tags..."
 git fetch origin --tags
 
-# Get the latest version tag
-LAST_TAG=$(git describe --tags --abbrev=0 --match "v[0-9]*.[0-9]*.[0-9]*" 2>/dev/null || echo "$DEFAULT_INITIAL_VERSION")
-
-# If no semantic version tags exist, start with the default initial version and assume 0.0.0 for first bump
-if [ "$LAST_TAG" = "$DEFAULT_INITIAL_VERSION" ] && [ "$(git tag --list "$DEFAULT_INITIAL_VERSION")" = "" ]; then
-    echo "No semantic version tags found. Starting with $DEFAULT_INITIAL_VERSION."
-    CURRENT_VERSION_SEMVER="0.0.0" # Base for first bump
-else
+# Get the latest version tag, if any
+if LAST_TAG=$(git describe --tags --abbrev=0 --match "v[0-9]*.[0-9]*.[0-9]*" 2>/dev/null); then
     CURRENT_VERSION_SEMVER=$(echo "$LAST_TAG" | sed 's/^v//')
+else
+    echo "No semantic version tags found. Starting from 0.0.0."
+    CURRENT_VERSION_SEMVER="0.0.0" # Base for first bump
 fi
 
 # Determine the new version
