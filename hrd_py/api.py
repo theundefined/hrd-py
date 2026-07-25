@@ -1,11 +1,14 @@
+from __future__ import annotations
+
+import hashlib
 import re
 import socket
 import ssl
-import hashlib
 import struct
 import xml.etree.ElementTree as ET
-from typing import Optional, List, Dict, Any
-from .exceptions import HRDCommunicationError, HRDAPIError, HRDAuthError
+from typing import Any
+
+from .exceptions import HRDAPIError, HRDAuthError, HRDCommunicationError
 
 _PASS_TAG_RE = re.compile(r"(<pass>).*?(</pass>)", re.DOTALL)
 
@@ -37,9 +40,9 @@ class HRDApi:
         self.verify_peer = verify_peer
         self.debug = debug
 
-        self.token: Optional[str] = None
-        self._sock: Optional[socket.socket] = None
-        self._ssl_sock: Optional[ssl.SSLSocket] = None
+        self.token: str | None = None
+        self._sock: socket.socket | None = None
+        self._ssl_sock: ssl.SSLSocket | None = None
 
     def _connect(self):
         if self._ssl_sock:
@@ -53,8 +56,11 @@ class HRDApi:
                 context.verify_mode = ssl.CERT_NONE
 
             self._ssl_sock = context.wrap_socket(self._sock, server_hostname=self.host)
-        except Exception as e:
-            raise HRDCommunicationError(f"Failed to connect to {self.host}:{self.port}: {e}")
+        except (OSError, ssl.SSLError) as e:
+            # OSError covers socket.create_connection failures (e.g. socket.gaierror,
+            # ConnectionRefusedError, timeout); ssl.SSLError covers wrap_socket/handshake
+            # failures (it's technically an OSError subclass, but listed explicitly for clarity).
+            raise HRDCommunicationError(f"Failed to connect to {self.host}:{self.port}: {e}") from e
 
     def _disconnect(self):
         if self._ssl_sock:
@@ -81,9 +87,11 @@ class HRDApi:
 
         try:
             self._ssl_sock.sendall(length_prefix + full_payload)
-        except Exception as e:
+        except OSError as e:
+            # Covers a broken/reset connection as well as SSL-layer send failures
+            # (ssl.SSLError is an OSError subclass).
             self._disconnect()
-            raise HRDCommunicationError(f"Failed to send data: {e}")
+            raise HRDCommunicationError(f"Failed to send data: {e}") from e
 
     def _read(self) -> str:
         assert self._ssl_sock is not None
@@ -104,11 +112,18 @@ class HRDApi:
                 raise HRDCommunicationError(f"Expected {length} bytes, got {len(response_data)}")
 
             return response_data.decode("utf-8")
-        except Exception as e:
+        except HRDCommunicationError:
+            # Already one of our own errors (short length prefix / truncated body) - just
+            # ensure we disconnect and propagate it as-is instead of double-wrapping it.
             self._disconnect()
-            raise HRDCommunicationError(f"Failed to read response: {e}")
+            raise
+        except (OSError, UnicodeDecodeError) as e:
+            # OSError covers recv() failures on the socket/SSL layer; UnicodeDecodeError
+            # covers a malformed (non-UTF-8) response body.
+            self._disconnect()
+            raise HRDCommunicationError(f"Failed to read response: {e}") from e
 
-    def _request(self, module: str, method: str = "", params: Optional[Dict[str, Any]] = None) -> ET.Element:
+    def _request(self, module: str, method: str = "", params: dict[str, Any] | None = None) -> ET.Element:
         # Construct XML - mirror PHP DOMDocument behavior
         # PHP: $dom = new \DOMDocument('1.0', 'utf-8');
         # PHP: $api = $dom->createElementNS('http://api.hrd.pl/api/', 'api');
@@ -172,7 +187,7 @@ class HRDApi:
 
         return resp_root
 
-    def _dict_to_xml(self, parent, data: Dict[str, Any]):
+    def _dict_to_xml(self, parent, data: dict[str, Any]):
         for key, value in data.items():
             child = ET.SubElement(parent, key)
             if isinstance(value, dict):
@@ -192,7 +207,7 @@ class HRDApi:
             return self.token
         raise HRDAuthError("Login failed, no token received")
 
-    def partner_get_balance(self) -> Dict[str, float]:
+    def partner_get_balance(self) -> dict[str, float]:
         resp = self._request("partner", "getBalance")
         balance_elem = resp.find(".//getBalance")
         if balance_elem is None:
@@ -201,15 +216,19 @@ class HRDApi:
         if balance_elem is not None:
             balance_child = balance_elem.find("balance")
             restricted_child = balance_elem.find("restrictedBalance")
-            if balance_child is not None and balance_child.text is not None:
-                if restricted_child is not None and restricted_child.text is not None:
-                    return {
-                        "balance": float(balance_child.text),
-                        "restricted_balance": float(restricted_child.text),
-                    }
+            if (
+                balance_child is not None
+                and balance_child.text is not None
+                and restricted_child is not None
+                and restricted_child.text is not None
+            ):
+                return {
+                    "balance": float(balance_child.text),
+                    "restricted_balance": float(restricted_child.text),
+                }
         raise HRDAPIError("Could not find balance information in response")
 
-    def domain_list(self, last_name: Optional[str] = None) -> List[str]:
+    def domain_list(self, last_name: str | None = None) -> list[str]:
         params = {}
         if last_name:
             params["lastName"] = last_name
@@ -218,7 +237,7 @@ class HRDApi:
         names = resp.findall(".//domain/list/name")
         return [n.text for n in names if n.text is not None]
 
-    def domain_info(self, domain_name: str) -> Dict[str, Any]:
+    def domain_info(self, domain_name: str) -> dict[str, Any]:
         params = {"name": domain_name}
         resp = self._request("domain", "info", params)
         info_elem = resp.find(".//domain/info")
@@ -226,7 +245,7 @@ class HRDApi:
         if info_elem is None:
             raise HRDAPIError(f"Could not find info for domain {domain_name}")
 
-        info: Dict[str, Any] = {"host": [], "dnssec": []}
+        info: dict[str, Any] = {"host": [], "dnssec": []}
         for child in info_elem:
             if child.tag == "ns":
                 info["ns"] = self._parse_ns_element(child)
@@ -240,7 +259,7 @@ class HRDApi:
                 info[child.tag] = child.text
         return info
 
-    def _parse_ns_element(self, ns_elem: ET.Element) -> List[str]:
+    def _parse_ns_element(self, ns_elem: ET.Element) -> list[str]:
         # <ns> is a choice of either a nameserver group id, or an explicit <ns><ns><name>...
         servers = []
         ns_list_elem = ns_elem.find("ns")
@@ -251,7 +270,7 @@ class HRDApi:
                     servers.append(name_el.text)
         return servers
 
-    def _parse_host_element(self, host_elem: ET.Element) -> Dict[str, Any]:
+    def _parse_host_element(self, host_elem: ET.Element) -> dict[str, Any]:
         name_el = host_elem.find("name")
         ips = [ip.text for ip in host_elem if ip.tag in ("ipv4", "ipv6") and ip.text is not None]
         return {"name": name_el.text if name_el is not None else None, "ips": ips}
@@ -264,7 +283,7 @@ class HRDApi:
             return int(action_id.text)
         raise HRDAPIError(f"Renewal failed for domain {domain_name}")
 
-    def action_list(self, last_id: Optional[int] = None) -> List[int]:
+    def action_list(self, last_id: int | None = None) -> list[int]:
         params = {}
         if last_id is not None:
             params["lastId"] = last_id
@@ -273,7 +292,7 @@ class HRDApi:
         ids = resp.findall(".//action/list/id")
         return [int(i.text) for i in ids if i.text is not None]
 
-    def action_info(self, action_id: int) -> Dict[str, Any]:
+    def action_info(self, action_id: int) -> dict[str, Any]:
         params = {"id": action_id}
         resp = self._request("action", "info", params)
         info_elem = resp.find(".//action/info")
@@ -285,7 +304,7 @@ class HRDApi:
             return info
         raise HRDAPIError(f"Could not find info for action {action_id}")
 
-    def user_info(self, user_id: int) -> Dict[str, Any]:
+    def user_info(self, user_id: int) -> dict[str, Any]:
         params = {"id": user_id}
         resp = self._request("user", "info", params)
         info_elem = resp.find(".//user/info")
@@ -297,15 +316,15 @@ class HRDApi:
             return info
         raise HRDAPIError(f"Could not find info for user {user_id}")
 
-    def user_list(self, last_id: Optional[int] = None) -> List[int]:
-        params: Dict[str, Any] = {}
+    def user_list(self, last_id: int | None = None) -> list[int]:
+        params: dict[str, Any] = {}
         if last_id is not None:
             params["lastId"] = last_id
         resp = self._request("user", "list", params)
         ids = resp.findall(".//user/list/id")
         return [int(i.text) for i in ids if i.text is not None]
 
-    def domain_update(self, domain_name: str, nameservers: List[str]) -> Optional[int]:
+    def domain_update(self, domain_name: str, nameservers: list[str]) -> int | None:
         # nsOrGroupType (simple form): <name/><ns><ns><ns><name/></ns>...</ns></ns>
         # The API requires between 2 and 16 nameservers here.
         def build(target: ET.Element) -> None:
@@ -322,9 +341,7 @@ class HRDApi:
             return int(action_id.text)
         return None
 
-    def _domain_host_action(
-        self, method: str, name: str, ipv4: Optional[List[str]], ipv6: Optional[List[str]]
-    ) -> Optional[int]:
+    def _domain_host_action(self, method: str, name: str, ipv4: list[str] | None, ipv6: list[str] | None) -> int | None:
         def build(target: ET.Element) -> None:
             ET.SubElement(target, "name").text = name
             for ip in ipv4 or []:
@@ -338,17 +355,13 @@ class HRDApi:
             return int(action_id.text)
         return None
 
-    def domain_host_create(
-        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
-    ) -> Optional[int]:
+    def domain_host_create(self, name: str, ipv4: list[str] | None = None, ipv6: list[str] | None = None) -> int | None:
         return self._domain_host_action("hostCreate", name, ipv4, ipv6)
 
-    def domain_host_update(
-        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
-    ) -> Optional[int]:
+    def domain_host_update(self, name: str, ipv4: list[str] | None = None, ipv6: list[str] | None = None) -> int | None:
         return self._domain_host_action("hostUpdate", name, ipv4, ipv6)
 
-    def domain_host_delete(self, name: str) -> Optional[int]:
+    def domain_host_delete(self, name: str) -> int | None:
         params = {"name": name}
         resp = self._request("domain", "hostDelete", params)
         action_id = resp.find(".//domain/hostDelete/actionId")
@@ -356,14 +369,14 @@ class HRDApi:
             return int(action_id.text)
         return None
 
-    def domain_host_info(self, name: str) -> Dict[str, Any]:
+    def domain_host_info(self, name: str) -> dict[str, Any]:
         params = {"name": name}
         resp = self._request("domain", "hostInfo", params)
         info_elem = resp.find(".//domain/hostInfo")
         if info_elem is None:
             raise HRDAPIError(f"Could not find host info for {name}")
 
-        info: Dict[str, Any] = {"ips": []}
+        info: dict[str, Any] = {"ips": []}
         for child in info_elem:
             if child.tag in ("ipv4", "ipv6") and child.text is not None:
                 info["ips"].append(child.text)
@@ -371,15 +384,15 @@ class HRDApi:
                 info[child.tag] = child.text
         return info
 
-    def domain_host_list(self, last_name: Optional[str] = None) -> List[str]:
-        params: Dict[str, Any] = {}
+    def domain_host_list(self, last_name: str | None = None) -> list[str]:
+        params: dict[str, Any] = {}
         if last_name:
             params["lastName"] = last_name
         resp = self._request("domain", "hostList", params)
         names = resp.findall(".//domain/hostList/name")
         return [n.text for n in names if n.text is not None]
 
-    def poll_get(self) -> Optional[Dict[str, Any]]:
+    def poll_get(self) -> dict[str, Any] | None:
         resp = self._request("poll", "get")
         get_elem = resp.find(".//poll/get")
         if get_elem is None or len(get_elem) == 0:

@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from hrd_py.client import HRDClient
 from hrd_py.models import Domain
 
@@ -22,7 +23,9 @@ def test_client_list_domains(mocker):
     assert len(domains) == 2
     assert domains[0].name == "domain1.pl"
     assert domains[0].status == "registered"
-    assert domains[0].expiry_date == datetime(2026, 6, 30)
+    # Domain model is intentionally naive-datetime throughout (the HRD.pl API returns
+    # date strings with no timezone info), so this must stay naive to compare equal.
+    assert domains[0].expiry_date == datetime(2026, 6, 30)  # noqa: DTZ001
     assert domains[1].name == "domain2.pl"
     assert domains[1].status == "expired"
 
@@ -30,7 +33,9 @@ def test_client_list_domains(mocker):
 def test_domain_is_expiring_soon():
     import datetime as dt
 
-    now = datetime.now()
+    # Domain.is_expiring_soon() compares against a naive datetime.now() internally (the
+    # HRD.pl API gives no timezone info), so this must stay naive to compare correctly.
+    now = datetime.now()  # noqa: DTZ005
 
     d_soon = Domain(name="soon.pl", status="ok", expiry_date=now + dt.timedelta(days=5))
     d_far = Domain(name="far.pl", status="ok", expiry_date=now + dt.timedelta(days=40))

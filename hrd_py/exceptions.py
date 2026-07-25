@@ -1,19 +1,13 @@
 class HRDError(Exception):
     """Base exception for hrd-py"""
 
-    pass
-
 
 class HRDCommunicationError(HRDError):
     """Exception raised for communication errors with HRD API"""
 
-    pass
-
 
 class HRDAuthError(HRDError):
     """Exception raised for authentication errors"""
-
-    pass
 
 
 class HRDAPIError(HRDError):

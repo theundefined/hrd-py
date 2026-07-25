@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import os
-import yaml
 import stat
-from typing import Dict, Any, Optional, List
+from typing import Any
+
+import yaml
 
 
 class ConfigManager:
     DEFAULT_PATH = os.path.expanduser("~/.config/hrd/config.yaml")
 
-    def __init__(self, path: Optional[str] = None):
+    def __init__(self, path: str | None = None):
         self.path = path or self.DEFAULT_PATH
-        self.config: Dict[str, Any] = {"default_profile": None, "profiles": {}}
+        self.config: dict[str, Any] = {"default_profile": None, "profiles": {}}
         self.load()
 
     def load(self):
@@ -29,7 +32,7 @@ class ConfigManager:
         # Set secure permissions (600)
         os.chmod(self.path, stat.S_IRUSR | stat.S_IWUSR)
 
-    def get_profile(self, name: Optional[str] = None) -> Optional[Dict[str, str]]:
+    def get_profile(self, name: str | None = None) -> dict[str, str] | None:
         name = name or self.config.get("default_profile")
         if not name:
             return None
@@ -53,11 +56,11 @@ class ConfigManager:
             return True
         return False
 
-    def list_profiles(self) -> List[str]:
+    def list_profiles(self) -> list[str]:
         return list(self.config.get("profiles", {}).keys())
 
-    def get_all_profiles(self) -> Dict[str, Dict[str, str]]:
+    def get_all_profiles(self) -> dict[str, dict[str, str]]:
         return self.config.get("profiles", {})
 
-    def get_default_profile_name(self) -> Optional[str]:
+    def get_default_profile_name(self) -> str | None:
         return self.config.get("default_profile")

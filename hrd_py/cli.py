@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
 from datetime import datetime
-from typing import Optional
 
 import click
 from dotenv import load_dotenv
@@ -192,7 +193,7 @@ def domain_info(obj, domain):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -263,7 +264,7 @@ def owner_info(obj, owner_id):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -331,7 +332,10 @@ def history(obj, limit):
         click.echo("No history found.")
         return
 
-    rows.sort(key=lambda r: r[1].date or datetime.min, reverse=True)
+    # entry.date (from models.HistoryEntry) and every other datetime in this codebase is
+    # naive (the HRD API's dates carry no timezone info), so the sentinel below must stay
+    # naive too or it can't be compared against real entries.
+    rows.sort(key=lambda r: r[1].date or datetime.min, reverse=True)  # noqa: DTZ901
 
     click.echo(f"{'DATE':19} | {'PROFILE':12} | {'TYPE':10} | {'OBJECT':30} | {'COST':>10} | STATUS")
     for profile, entry in rows:
@@ -359,7 +363,7 @@ def renew(obj, domain, period):
 
     click.echo(f"Renewing domain {domain} for {period} year(s)...")
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -397,7 +401,7 @@ def nameservers_cmd(obj, domain, nameservers):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -461,7 +465,7 @@ def host_info(obj, name):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -499,7 +503,7 @@ def host_create(obj, name, ipv4, ipv6):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -537,7 +541,7 @@ def host_update(obj, name, ipv4, ipv6):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -569,7 +573,7 @@ def host_delete(obj, name):
         click.echo("No profiles configured. Use 'hrd profile add' to set up credentials.")
         return
 
-    last_error: Optional[HRDError] = None
+    last_error: HRDError | None = None
     for p_name in profiles_to_process:
         ctx_profile = obj if obj.explicit_profile else CLIContext(p_name, debug=obj.debug)
         try:
@@ -709,10 +713,9 @@ def auto_renew(obj, days, dry_run, no_ask):
                 if dry_run:
                     click.echo(f"[DRY RUN] Would renew {d.name} (expires {expiry_str})")
                 else:
-                    if not no_ask:
-                        if not click.confirm(f"Renew {d.name} (expires {expiry_str})?", default=False):
-                            click.echo(f"Skipping {d.name}")
-                            continue
+                    if not no_ask and not click.confirm(f"Renew {d.name} (expires {expiry_str})?", default=False):
+                        click.echo(f"Skipping {d.name}")
+                        continue
 
                     click.echo(f"Renewing {d.name}...")
                     try:
@@ -720,7 +723,7 @@ def auto_renew(obj, days, dry_run, no_ask):
                         click.echo(f"  Success: {action_id}")
                     except HRDError as e:
                         click.echo(f"  Failed: {e}")
-        except Exception as e:
+        except HRDError as e:
             click.echo(f"Error processing profile {p_name or 'default'}: {e}")
 
 

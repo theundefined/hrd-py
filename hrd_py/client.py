@@ -1,8 +1,11 @@
-from typing import List, Optional, Dict, Any
+from __future__ import annotations
+
 from datetime import datetime
+from typing import Any
+
 from .api import HRDApi
-from .models import Balance, Domain, DomainDetails, HistoryEntry, Owner
 from .exceptions import HRDError
+from .models import Balance, Domain, DomainDetails, HistoryEntry, Owner
 
 
 class HRDClient:
@@ -16,7 +19,7 @@ class HRDClient:
         data = self.api.partner_get_balance()
         return Balance(balance=data["balance"], restricted_balance=data["restricted_balance"])
 
-    def list_domains(self) -> List[Domain]:
+    def list_domains(self) -> list[Domain]:
         domain_names = []
         last_name = None
         while True:
@@ -41,7 +44,7 @@ class HRDClient:
 
         return domains
 
-    def _parse_domain_info(self, name: str, info: Dict[str, Any]) -> Domain:
+    def _parse_domain_info(self, name: str, info: dict[str, Any]) -> Domain:
         expiry_date = None
         if info.get("exDate"):
             expiry_date = self._parse_date(info["exDate"])
@@ -60,10 +63,13 @@ class HRDClient:
             owner_id=owner_id,
         )
 
-    def _parse_date(self, date_str: str) -> Optional[datetime]:
+    def _parse_date(self, date_str: str) -> datetime | None:
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
-                return datetime.strptime(date_str, fmt)
+                # HRD API returns dates with no timezone information (see
+                # docs_api/PROTOCOL.md), so a naive datetime is intentional here,
+                # matching the naive `Domain`/`HistoryEntry` model fields.
+                return datetime.strptime(date_str, fmt)  # noqa: DTZ007
             except ValueError:
                 continue
         return None
@@ -80,8 +86,8 @@ class HRDClient:
         # API requires currentExpirationDate as a plain YYYY-MM-DD date (no time component)
         return self.api.domain_renew(domain_name, expiry_date.strftime("%Y-%m-%d"), period)
 
-    def get_history(self, limit: int = 20) -> List[HistoryEntry]:
-        action_ids: List[int] = []
+    def get_history(self, limit: int = 20) -> list[HistoryEntry]:
+        action_ids: list[int] = []
         last_id = None
         while True:
             batch = self.api.action_list(last_id=last_id)
@@ -107,7 +113,7 @@ class HRDClient:
 
         return entries
 
-    def _parse_history_entry(self, action_id: int, info: Dict[str, Any]) -> HistoryEntry:
+    def _parse_history_entry(self, action_id: int, info: dict[str, Any]) -> HistoryEntry:
         date = None
         if info.get("added"):
             date = self._parse_date(info["added"])
@@ -156,7 +162,7 @@ class HRDClient:
         data = self.api.user_info(owner_id)
         return self._parse_owner(data, owner_id)
 
-    def _parse_owner(self, data: Dict[str, Any], owner_id: Optional[int] = None) -> Owner:
+    def _parse_owner(self, data: dict[str, Any], owner_id: int | None = None) -> Owner:
         return Owner(
             name=data.get("name", "unknown"),
             id=owner_id,
@@ -171,11 +177,11 @@ class HRDClient:
             mobile_phone=data.get("mobilePhone"),
         )
 
-    def update_nameservers(self, domain_name: str, nameservers: List[str]) -> Optional[int]:
+    def update_nameservers(self, domain_name: str, nameservers: list[str]) -> int | None:
         return self.api.domain_update(domain_name, nameservers)
 
-    def list_hosts(self) -> List[str]:
-        names: List[str] = []
+    def list_hosts(self) -> list[str]:
+        names: list[str] = []
         last_name = None
         while True:
             batch = self.api.domain_host_list(last_name=last_name)
@@ -187,30 +193,26 @@ class HRDClient:
                 break
         return names
 
-    def get_host(self, name: str) -> Dict[str, Any]:
+    def get_host(self, name: str) -> dict[str, Any]:
         return self.api.domain_host_info(name)
 
-    def create_host(
-        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
-    ) -> Optional[int]:
+    def create_host(self, name: str, ipv4: list[str] | None = None, ipv6: list[str] | None = None) -> int | None:
         return self.api.domain_host_create(name, ipv4, ipv6)
 
-    def update_host(
-        self, name: str, ipv4: Optional[List[str]] = None, ipv6: Optional[List[str]] = None
-    ) -> Optional[int]:
+    def update_host(self, name: str, ipv4: list[str] | None = None, ipv6: list[str] | None = None) -> int | None:
         return self.api.domain_host_update(name, ipv4, ipv6)
 
-    def delete_host(self, name: str) -> Optional[int]:
+    def delete_host(self, name: str) -> int | None:
         return self.api.domain_host_delete(name)
 
-    def get_next_notification(self) -> Optional[Dict[str, Any]]:
+    def get_next_notification(self) -> dict[str, Any] | None:
         return self.api.poll_get()
 
     def ack_notification(self, notification_id: int) -> None:
         self.api.poll_ack(notification_id)
 
-    def list_owner_ids(self) -> List[int]:
-        ids: List[int] = []
+    def list_owner_ids(self) -> list[int]:
+        ids: list[int] = []
         last_id = None
         while True:
             batch = self.api.user_list(last_id=last_id)
@@ -222,7 +224,7 @@ class HRDClient:
                 break
         return ids
 
-    def renew_all_expiring(self, days: int = 30) -> Dict[str, int]:
+    def renew_all_expiring(self, days: int = 30) -> dict[str, int]:
         domains = self.list_domains()
         results = {}
         for domain in domains:

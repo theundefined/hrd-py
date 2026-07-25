@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -13,14 +15,18 @@ class Balance:
 class Domain:
     name: str
     status: str
-    expiry_date: Optional[datetime] = None
-    create_date: Optional[datetime] = None
-    owner_id: Optional[int] = None
+    expiry_date: datetime | None = None
+    create_date: datetime | None = None
+    owner_id: int | None = None
 
     def is_expiring_soon(self, days: int = 30) -> bool:
         if not self.expiry_date:
             return False
-        delta = self.expiry_date - datetime.now()
+        # The HRD.pl API returns naive date strings (no timezone info), and the
+        # whole domain model (client.py's _parse_date, cli.py's datetime.min
+        # comparisons) is naive throughout, so this must stay naive too to
+        # remain comparable with self.expiry_date.
+        delta = self.expiry_date - datetime.now()  # noqa: DTZ005
         return delta.days <= days
 
 
@@ -30,37 +36,37 @@ class HistoryEntry:
     type: str
     object: str
     status: str
-    object_name: Optional[str] = None
-    amount: Optional[float] = None
-    date: Optional[datetime] = None
+    object_name: str | None = None
+    amount: float | None = None
+    date: datetime | None = None
 
 
 @dataclass
 class Owner:
     name: str
-    id: Optional[int] = None
-    type: Optional[str] = None
-    email: Optional[str] = None
-    street: Optional[str] = None
-    city: Optional[str] = None
-    postcode: Optional[str] = None
-    country: Optional[str] = None
-    id_number: Optional[str] = None
-    landline_phone: Optional[str] = None
-    mobile_phone: Optional[str] = None
+    id: int | None = None
+    type: str | None = None
+    email: str | None = None
+    street: str | None = None
+    city: str | None = None
+    postcode: str | None = None
+    country: str | None = None
+    id_number: str | None = None
+    landline_phone: str | None = None
+    mobile_phone: str | None = None
 
 
 @dataclass
 class DomainDetails:
     name: str
     status: str
-    create_date: Optional[datetime] = None
-    expiry_date: Optional[datetime] = None
+    create_date: datetime | None = None
+    expiry_date: datetime | None = None
     privacy: bool = False
-    privacy_protection_date: Optional[datetime] = None
-    nameservers: List[str] = field(default_factory=list)
-    hosts: List[Dict[str, Any]] = field(default_factory=list)
-    dnssec_records: List[Dict[str, Any]] = field(default_factory=list)
-    action_ids: List[int] = field(default_factory=list)
-    owner_id: Optional[int] = None
-    owner: Optional[Owner] = None
+    privacy_protection_date: datetime | None = None
+    nameservers: list[str] = field(default_factory=list)
+    hosts: list[dict[str, Any]] = field(default_factory=list)
+    dnssec_records: list[dict[str, Any]] = field(default_factory=list)
+    action_ids: list[int] = field(default_factory=list)
+    owner_id: int | None = None
+    owner: Owner | None = None

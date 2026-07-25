@@ -1,5 +1,6 @@
-import struct
 import hashlib
+import struct
+
 from hrd_py.api import HRDApi, _redact_pass
 
 
