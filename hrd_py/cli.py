@@ -1,12 +1,18 @@
+import logging
 import os
 import sys
 from datetime import datetime
 from typing import Optional
+
 import click
-from .client import HRDClient
-from .exceptions import HRDError
-from .config import ConfigManager
 from dotenv import load_dotenv
+
+from .client import HRDClient
+from .config import ConfigManager
+from .exceptions import HRDError
+
+# Suppress python-dotenv parsing warnings (e.g. when loading non-standard system/home .env files)
+logging.getLogger("dotenv").setLevel(logging.ERROR)
 
 # Still load dotenv for backward compatibility or explicit override
 load_dotenv(override=True)
@@ -67,7 +73,6 @@ def cli(ctx, profile, debug):
 @cli.group()
 def profile():
     """Manage account profiles"""
-    pass
 
 
 @profile.command(name="add")
@@ -414,7 +419,6 @@ def nameservers_cmd(obj, domain, nameservers):
 @cli.group()
 def host():
     """Manage glue host records (nameservers hosted under a domain you control)."""
-    pass
 
 
 @host.command(name="list")
